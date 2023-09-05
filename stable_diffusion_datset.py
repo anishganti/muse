@@ -1,3 +1,4 @@
+# facing dependency issues from my end 
 def dataset_laion(num):
     from datasets import load_dataset    
     if num == "2B":
@@ -9,5 +10,6 @@ def dataset_laion(num):
         print("loading 400M dataset from HuggingFace")
         dataset = load_dataset("laion/laion400m", split="train")
     return dataset
-    
-dataset_laion("2B")
+
+# uncooment this for testing the script
+# dataset_laion("2B") 
