@@ -58,6 +58,8 @@ class BaseTransformer(nn.Module):
     def __init__(self, config) -> None:
         super(BaseTransformer, self).__init__()
         # save the sequence length of the base images
+        self.height = config.height
+        self.width = config.width
         self.seq_len = config.height * config.width      
         # create the transformer model
         self.transformer = nn.ModuleDict(dict(
@@ -75,17 +77,52 @@ class BaseTransformer(nn.Module):
         self.text_encoder = get_text_encoder(config.t5_model)
         self.proj_text = nn.Linear(config.text_emb_dim, config.emb_dim)
 
-    def forward(self, img, text):
+    def get_mask(self):
+        p = 2/pi * (1 - random.random() ** 2) ** (-1/2)
+        mask = (torch.randn(self.seq_len) < p)
+        self.register_buffer("mask_tokens", mask, persistent=False)
+        return mask
+
+    def forward(self, img, text, mask_id:int):
         n, device = self.seq_len, img.device
         # encode and project the text into our model's dimension
-        text_emb = self.text_encoder(text)
-        text_emb = self.proj_text(text_emb.last_hidden_states)
+        # only do this 90% of the time
+        if text is not None:
+            text_emb = self.text_encoder(text)
+            text_emb = self.proj_text(text_emb.last_hidden_states)
+        else:
+            text_emb = text
+
         # embed the image and inject positional information
+        # mask the tokens based on the muse strategy
         # flatten the image tokens for computation
-        img_emb = self.transformer.img_embedding(img.flatten(dim=1))
+        img_emb = self.transformer.img_embedding(img.flatten(dim=1).masked_fill(self.get_mask(), mask_id))
         img_emb = self.dropout(img_emb + self.transformer.pos_enc2d(torch.arange(n, device=device)))
         # pass the image embedding through the transformer block
         img_emb = self.transformer.decoder(img_emb, text_emb)
         img_emb = self.transformer.ln_f(img_emb)
 
         return self.lm_head(img_emb)
+    
+    def forward_with_cond_scale(self, img, text, mask_id:int, cond_scale:float):
+        # entirely conditioned logits
+        if cond_scale == 1.:
+            return self.forward(img, text, mask_id)
+        
+        logits = self.forward(img, text, mask_id) # logits conditioned on text
+        null_logits = self.forward(img, None, mask_id) # logits with no text conditioning
+
+        # cfg logits
+        scaled_logits = null_logits + (logits - null_logits) * cond_scale
+
+        return scaled_logits
+    
+    def forward_with_neg_prompt(self, img, pos_text, neg_text, mask_id:int, cond_scale:float):
+        # logits with negative prompts
+        neg_logits = self.forward(img, neg_text, mask_id)
+        # logits with positive prompts
+        pos_logits = self.forward(img, pos_text, mask_id)
+
+        scaled_logits = neg_logits + (pos_logits - neg_logits) * cond_scale
+
+        return scaled_logits

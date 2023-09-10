@@ -73,7 +73,6 @@ class TransformerBlock(nn.Module):
     """
     def __init__(self, emb_dim:int, nhead:int, dropout:float) -> None:
         super(TransformerBlock, self).__init__()
-
         self.ln1 = nn.LayerNorm(emb_dim)
         self.self_attn = MultiQueryAttention(emb_dim, nhead, dropout)
         self.ln2 = nn.LayerNorm(emb_dim)
@@ -82,7 +81,8 @@ class TransformerBlock(nn.Module):
 
     def forward(self, input, context):
         x = input + self.self_attn(self.ln1(input))
-        x = x + self.cross_attn(self.ln2(x), context)
+        if context is not None:
+            x = x + self.cross_attn(self.ln2(x), context)
         x = self.mlp(x)
         return x
 
