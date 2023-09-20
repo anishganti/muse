@@ -1,4 +1,5 @@
 import torch
+from math import ceil
 from einops import rearrange
 import torch.nn as nn
 import torch.nn.functional as F
@@ -22,12 +23,13 @@ class EncoderBlock(nn.Module):
     def __init__(self, emb_dim:int, nhead:int, dropout:float) -> None:
         super(EncoderBlock, self).__init__()
 
-        self.ln1 = nn.LayerNorm(emb_dim)
-        self.self_attn = MultiQueryAttention(emb_dim, nhead, dropout)
+        self.ln1 = LayerNorm(emb_dim)
+        self.self_attn = nn.MultiheadAttention(emb_dim, nhead, dropout, False, batch_first=True)
         self.mlp = MLP(emb_dim)
 
     def forward(self, input):
-        x = input + self.self_attn(self.ln1(input))
+        x = self.ln1(input)
+        x = input + self.self_attn(x, x, x, need_weights=False, average_attn_weights=False)[0]
         x = self.mlp(x)
         return x
     
@@ -45,11 +47,11 @@ class MultiAxisTransformerBlock(nn.Module):
         y: the final hidden state (b, n, p, c)
     """
     def __init__(self, nchannels:int, block_size:int, nhead:int, dropout:float) -> None:
-        super(MultiAxisTransformerBlock, self).__init()
+        super(MultiAxisTransformerBlock, self).__init__()
 
-        self.ln1 = nn.LayerNorm(nchannels)
-        self.self_attn = MultiAxisAttention(nchannels, block_size, nhead, dropout)
-        self.ln2 = nn.LayerNorm(nchannels)
+        self.ln1 = LayerNorm(nchannels)
+        self.self_attn = MultiAxisAttention(nchannels, nhead, dropout)
+        self.ln2 = LayerNorm(nchannels)
         self.cross_attn = MultiQueryAttention(nchannels, nhead, dropout)
         self.mlp = MLP(nchannels)
 
@@ -73,14 +75,14 @@ class TransformerBlock(nn.Module):
     """
     def __init__(self, emb_dim:int, nhead:int, dropout:float) -> None:
         super(TransformerBlock, self).__init__()
-        self.ln1 = nn.LayerNorm(emb_dim)
+        self.ln1 = LayerNorm(emb_dim)
         self.self_attn = MultiQueryAttention(emb_dim, nhead, dropout)
-        self.ln2 = nn.LayerNorm(emb_dim)
+        self.ln2 = LayerNorm(emb_dim)
         self.cross_attn = MultiQueryAttention(emb_dim, nhead, dropout)
         self.mlp = MLP(emb_dim)
 
     def forward(self, input, context):
-        x = input + self.self_attn(self.ln1(input))
+        x = input + self.self_attn(self.ln1(input), self.ln1(input))
         if context is not None:
             x = x + self.cross_attn(self.ln2(x), context)
         x = self.mlp(x)
@@ -101,10 +103,10 @@ class MLP(nn.Module):
         # inner dimension - per Shazeer's recommendation on GEGLU
         inner_dim = int(emb_dim * 4 * 2/3)
         # all other components of the MLP
-        self.ln1 = nn.LayerNorm(emb_dim)
-        self.proj1 = nn.Linear(emb_dim, inner_dim, bias=False)
+        self.ln1 = LayerNorm(emb_dim)
+        self.proj1 = nn.Linear(emb_dim, 2 * inner_dim, bias=False)
         self.act = GEGLU()
-        self.ln2 = nn.LayerNorm(inner_dim)
+        self.ln2 = LayerNorm(inner_dim)
         self.proj2 = nn.Linear(inner_dim, emb_dim, bias=False)
 
     def forward(self, x):
@@ -147,7 +149,6 @@ class MultiQueryAttention(nn.Module):
 
     def forward(self, input, context=None):
         h = self.nhead
-        context = context if not None else input
 
         q, k, v = (self.to_q(input), *self.to_kv(context).chunk(2, dim=-1))
         q = rearrange(q, "b ... (h d) -> b h ... d", h=h) * self.scale
@@ -157,7 +158,7 @@ class MultiQueryAttention(nn.Module):
         
         else:
             sim = torch.einsum("b ... n d, b t d -> b ... n t", q, k)
-            att = self.attn_dropoutdropout(sim.softmax(dim=-1))
+            att = self.attn_dropout(sim.softmax(dim=-1))
             y = torch.einsum("b ... n t, b t d -> b ... n d", att, v)
 
         y = rearrange(y, "b h ... d -> b ... (h d)")
@@ -172,19 +173,15 @@ class MultiAxisAttention(nn.Module):
         nhead: number of heads
         dropout: dropout rate
     Args:
-       img: the image input (b, c, h, w) 
+       img: the image input (b, n, p, c) 
     Returns:
         y: the final hidden state (b, n, p, c)
     """
-    def __init__(self, nchannels:int, block_size:int, nhead:int, dropout:float) -> None:
+    def __init__(self, nchannels:int, nhead:int, dropout:float) -> None:
         super(MultiAxisAttention, self).__init__()
-
-        # create the blocker
-        self.blocker = nn.Unfold(block_size, stride=block_size)
         
+        # cache shape informations
         self.nhead = nhead
-        self.nchannels = nchannels
-        self.block_size = block_size
         self.scale = (nchannels // nhead) ** -0.5
 
         # projection layers
@@ -200,21 +197,14 @@ class MultiAxisAttention(nn.Module):
         else:
             self.attn_dropout = nn.Dropout(dropout)
 
-    def forward(self, img):
-        # assert that images are square and can be square rooted by the block sizes
-        assert img.shape[2] == img.shape[3]
-        assert img.shape[2] // self.block_size == self.block_size
+    def forward(self, img_blocks):
         # cache the head and channel information
         h = self.nhead
-        c = self.nchannels
-
-        # chop the image into blocks
-        img_blocks = self.blocker(img)
-        img_blocks = map(lambda t: rearrange(t, "b (c k k) n -> b n (k k) c", c=c), (img_blocks))
 
         # project the image into query and key values
         q, k, v = self.to_qkv(img_blocks).chunk(3, dim=-1)
-        q, k, v = map(lambda t: rearrange(t, 'b n p (h c) -> b h n p c', h = h) * self.scale, (q, k, v))
+        q, k, v = map(lambda t: rearrange(t, 'b n p (h c) -> b h n p c', h = h), (q, k, v))
+        q = q * self.scale
 
         # split and transpose
         # this will let us perform dilated and regional self attention 
@@ -236,16 +226,30 @@ class MultiAxisAttention(nn.Module):
         return y
 
 # helper functions
+def img_partitioner(img, block_size, nchannels):
+    # assumption checks
+    assert img.shape[1] == img.shape[2]
+    assert int(img.shape[2] ** 0.5) == block_size
+
+     # create the blocker
+    blocker = nn.Unfold(block_size, stride=block_size)
+
+    # chopping the images into blocks
+    img_blocks = rearrange(img, "b h w c -> b c h w")
+    img_blocks = blocker(img_blocks)
+    
+    return rearrange(img_blocks, "b (c p) n -> b n p c", c=nchannels)
+
+
 def axis_splitting(q, k, v, h):
     # channel splitting
-    q1, k1, v1 = (q[:, :h // 2, ...], k[:, :h // 2, ...], v[:, :h // 2, ...])
-    q2, k2, v2 = (q[:, h // 2:, ...], k[:, h // 2:, ...], v[:, h // 2:, ...])
+    (q1, q2), (k1, k2), (v1, v2) = map(lambda t: (t[:, :h // 2, ...], t[:, h // 2:, ...]), (q, k, v))
     
     # transpose and concat
     q1, k1, v1 = map(lambda t: torch.transpose(t, 2, 3), (q1, k1, v1))
-    q, k , v = map(lambda ts: torch.concat(ts, dim=1), ((q1, q2), (k1, k2), (v1, v2)))
+    qt, kt , vt = map(lambda ts: torch.concat(ts, dim=1), ((q1, q2), (k1, k2), (v1, v2)))
 
-    return q, k, v
+    return qt, kt, vt
 
 def get_text_encoder(t5_model):
     model = T5EncoderModel.from_pretrained(t5_model)
@@ -257,4 +261,14 @@ def get_text_encoder(t5_model):
 class GEGLU(nn.Module):
     def forward(self, x):
         x, gate = x.chunk(2, dim=-1)
-        return gate * F.gelu(x, 'tanh')
+        return gate * F.gelu(x, approximate='tanh')
+    
+# layer norm with bias
+class LayerNorm(nn.Module):
+    def __init__(self, dim):
+        super().__init__()
+        self.gamma = nn.Parameter(torch.ones(dim))
+        self.register_buffer('beta', torch.zeros(dim))
+
+    def forward(self, x):
+        return F.layer_norm(x, x.shape[-1:], self.gamma, self.beta)
