@@ -3,7 +3,6 @@ from math import ceil
 from einops import rearrange
 import torch.nn as nn
 import torch.nn.functional as F
-from transformers import T5EncoderModel
 
 """
 The components for the transformer model
@@ -12,20 +11,20 @@ The components for the transformer model
 class EncoderBlock(nn.Module):
     """
     Params:
-        emb_dim: dimension size of the embeddings
-        nhead: number of heads
+        hidden_size: dimension size of the embeddings
+        num_head: number of heads
         dropout: the dropout rate
     Args:
         input: the image input (b, h * w, c)
     Returns:
         x: the output of self-attention and MLP (b, h * w, c)
     """
-    def __init__(self, emb_dim:int, nhead:int, dropout:float) -> None:
+    def __init__(self, hidden_size:int, num_head:int, dropout:float) -> None:
         super(EncoderBlock, self).__init__()
 
-        self.ln1 = LayerNorm(emb_dim)
-        self.self_attn = nn.MultiheadAttention(emb_dim, nhead, dropout, False, batch_first=True)
-        self.mlp = MLP(emb_dim)
+        self.ln1 = LayerNorm(hidden_size)
+        self.self_attn = nn.MultiheadAttention(hidden_size, num_head, dropout, False, batch_first=True)
+        self.mlp = MLP(hidden_size)
 
     def forward(self, input):
         x = self.ln1(input)
@@ -38,7 +37,7 @@ class MultiAxisTransformerBlock(nn.Module):
     Params:
         nchannels: the hidden size of the image input
         block_size: the kernel size of the image blocks
-        nhead: number of heads
+        num_head: number of heads
         dropout: dropout rate
     Args:
        input: the image input (b, c, h, w)
@@ -46,13 +45,13 @@ class MultiAxisTransformerBlock(nn.Module):
     Returns:
         y: the final hidden state (b, n, p, c)
     """
-    def __init__(self, nchannels:int, block_size:int, nhead:int, dropout:float) -> None:
+    def __init__(self, nchannels:int, block_size:int, num_head:int, dropout:float) -> None:
         super(MultiAxisTransformerBlock, self).__init__()
 
         self.ln1 = LayerNorm(nchannels)
-        self.self_attn = MultiAxisAttention(nchannels, nhead, dropout)
+        self.self_attn = MultiAxisAttention(nchannels, num_head, dropout)
         self.ln2 = LayerNorm(nchannels)
-        self.cross_attn = MultiQueryAttention(nchannels, nhead, dropout)
+        self.cross_attn = MultiQueryAttention(nchannels, num_head, dropout)
         self.mlp = MLP(nchannels)
 
     def forward(self, input, context):
@@ -64,8 +63,8 @@ class MultiAxisTransformerBlock(nn.Module):
 class TransformerBlock(nn.Module):
     """
     Params:
-        emb_dim: dimension size of the embeddings
-        nhead: number of heads
+        hidden_size: dimension size of the embeddings
+        num_head: number of heads
         dropout: the dropout rate
     Args:
         input: the query input for the decoder (b, h * w, d)
@@ -73,13 +72,13 @@ class TransformerBlock(nn.Module):
     Returns:
         x: the last hidden state of the transformer block (b, h * w, d)
     """
-    def __init__(self, emb_dim:int, nhead:int, dropout:float) -> None:
+    def __init__(self, hidden_size:int, num_head:int, dropout:float) -> None:
         super(TransformerBlock, self).__init__()
-        self.ln1 = LayerNorm(emb_dim)
-        self.self_attn = MultiQueryAttention(emb_dim, nhead, dropout)
-        self.ln2 = LayerNorm(emb_dim)
-        self.cross_attn = MultiQueryAttention(emb_dim, nhead, dropout)
-        self.mlp = MLP(emb_dim)
+        self.ln1 = LayerNorm(hidden_size)
+        self.self_attn = MultiQueryAttention(hidden_size, num_head, dropout)
+        self.ln2 = LayerNorm(hidden_size)
+        self.cross_attn = MultiQueryAttention(hidden_size, num_head, dropout)
+        self.mlp = MLP(hidden_size)
 
     def forward(self, input, context):
         x = input + self.self_attn(self.ln1(input), self.ln1(input))
@@ -91,23 +90,23 @@ class TransformerBlock(nn.Module):
 class MLP(nn.Module):
     """
     Params:
-        emb_dim: dimension size of the embeddings
+        hidden_size: dimension size of the embeddings
     Args:
         x: output embeddings from cross-attention (b, h * w, d)
     Returns:
         x: final hidden state of the embeddings (b, h * w, d)
     """
-    def __init__(self, emb_dim:int) -> None:
+    def __init__(self, hidden_size:int) -> None:
         super(MLP, self).__init__()
 
         # inner dimension - per Shazeer's recommendation on GEGLU
-        inner_dim = int(emb_dim * 4 * 2/3)
+        inner_dim = int(hidden_size * 4 * 2/3)
         # all other components of the MLP
-        self.ln1 = LayerNorm(emb_dim)
-        self.proj1 = nn.Linear(emb_dim, 2 * inner_dim, bias=False)
+        self.ln1 = LayerNorm(hidden_size)
+        self.proj1 = nn.Linear(hidden_size, 2 * inner_dim, bias=False)
         self.act = GEGLU()
         self.ln2 = LayerNorm(inner_dim)
-        self.proj2 = nn.Linear(inner_dim, emb_dim, bias=False)
+        self.proj2 = nn.Linear(inner_dim, hidden_size, bias=False)
 
     def forward(self, x):
         x = self.proj1(self.ln1(x))
@@ -118,8 +117,8 @@ class MLP(nn.Module):
 class MultiQueryAttention(nn.Module):
     """
     Params:
-        emb_dim: dimension size of the embeddings
-        nhead: number of heads
+        hidden_size: dimension size of the embeddings
+        num_head: number of heads
         dropout: the dropout rate
     Args:
         input: the query input (b, ..., d)
@@ -127,18 +126,18 @@ class MultiQueryAttention(nn.Module):
     Returns:
         y: the output after cross/self-attention (b, ..., d)
     """
-    def __init__(self, emb_dim:int, nhead:int, dropout:float) -> None:
+    def __init__(self, hidden_size:int, num_head:int, dropout:float) -> None:
         super(MultiQueryAttention, self).__init__()
 
         # cache numerical information for the rest of the operation
-        self.nhead = nhead
-        self.emb_dim = emb_dim
-        self.scale = (emb_dim // nhead) ** -0.5
+        self.num_head = num_head
+        self.hidden_size = hidden_size
+        self.scale = (hidden_size // num_head) ** -0.5
 
         # projection layers
-        self.to_q = nn.Linear(emb_dim, emb_dim, bias=False)
-        self.to_kv = nn.Linear(emb_dim, 2 * emb_dim // nhead, bias=False)
-        self.to_o = nn.Linear(emb_dim, emb_dim, bias=False)
+        self.to_q = nn.Linear(hidden_size, hidden_size, bias=False)
+        self.to_kv = nn.Linear(hidden_size, 2 * hidden_size // num_head, bias=False)
+        self.to_o = nn.Linear(hidden_size, hidden_size, bias=False)
 
         # regularization
         self.dropout = dropout
@@ -148,7 +147,7 @@ class MultiQueryAttention(nn.Module):
         self.flash = hasattr(F, 'scaled_dot_product_attnetion')
 
     def forward(self, input, context=None):
-        h = self.nhead
+        h = self.num_head
 
         q, k, v = (self.to_q(input), *self.to_kv(context).chunk(2, dim=-1))
         q = rearrange(q, "b ... (h d) -> b h ... d", h=h) * self.scale
@@ -170,19 +169,19 @@ class MultiAxisAttention(nn.Module):
     Params:
         nchannels: the hidden size of the image input
         block_size: the kernel size of the image blocks
-        nhead: number of heads
+        num_head: number of heads
         dropout: dropout rate
     Args:
        img: the image input (b, n, p, c) 
     Returns:
         y: the final hidden state (b, n, p, c)
     """
-    def __init__(self, nchannels:int, nhead:int, dropout:float) -> None:
+    def __init__(self, nchannels:int, num_head:int, dropout:float) -> None:
         super(MultiAxisAttention, self).__init__()
         
         # cache shape informations
-        self.nhead = nhead
-        self.scale = (nchannels // nhead) ** -0.5
+        self.num_head = num_head
+        self.scale = (nchannels // num_head) ** -0.5
 
         # projection layers
         self.to_qkv = nn.Linear(nchannels, 3 * nchannels, bias=False)
@@ -199,7 +198,7 @@ class MultiAxisAttention(nn.Module):
 
     def forward(self, img_blocks):
         # cache the head and channel information
-        h = self.nhead
+        h = self.num_head
 
         # project the image into query and key values
         q, k, v = self.to_qkv(img_blocks).chunk(3, dim=-1)
@@ -226,21 +225,6 @@ class MultiAxisAttention(nn.Module):
         return y
 
 # helper functions
-def img_partitioner(img, block_size, nchannels):
-    # assumption checks
-    assert img.shape[1] == img.shape[2]
-    assert int(img.shape[2] ** 0.5) == block_size
-
-     # create the blocker
-    blocker = nn.Unfold(block_size, stride=block_size)
-
-    # chopping the images into blocks
-    img_blocks = rearrange(img, "b h w c -> b c h w")
-    img_blocks = blocker(img_blocks)
-    
-    return rearrange(img_blocks, "b (c p) n -> b n p c", c=nchannels)
-
-
 def axis_splitting(q, k, v, h):
     # channel splitting
     (q1, q2), (k1, k2), (v1, v2) = map(lambda t: (t[:, :h // 2, ...], t[:, h // 2:, ...]), (q, k, v))
@@ -250,13 +234,6 @@ def axis_splitting(q, k, v, h):
     qt, kt , vt = map(lambda ts: torch.concat(ts, dim=1), ((q1, q2), (k1, k2), (v1, v2)))
 
     return qt, kt, vt
-
-def get_text_encoder(t5_model):
-    model = T5EncoderModel.from_pretrained(t5_model)
-    # Freeze the weights
-    for param in model.parameters():
-        param.requires_grad = False
-    return model
 
 class GEGLU(nn.Module):
     def forward(self, x):
