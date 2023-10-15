@@ -1,10 +1,14 @@
-from datasets import load_dataset
-from transformers import T5TokenizerFast
-from torchvision import transforms
-from multiprocessing import cpu_count
-from torch.nn.utils.rnn import pad_sequence
 import torch
 import random
+import inspect
+import os
+import math
+
+# libraries for data-processing
+from datasets import load_dataset
+from transformers import T5TokenizerFast, Adafactor
+from torchvision import transforms
+from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader, DistributedSampler
 import numpy as np
 import requests
@@ -12,13 +16,11 @@ import io
 from muse.muse import VQGANModel, PaellaVQModel
 from PIL import Image
 
+# libraries for training configuration
+from torch.optim.lr_scheduler import CosineAnnealingLR, LambdaLR, SequentialLR
+
 class TokenProcessor:
-    def __init__(
-            self, 
-            encoder_size: str, 
-            vq_size: int,
-            img_size: int
-        ):
+    def __init__(self, encoder_size: str, vq_size: int, img_size: int):
 
         # the image normalizer/recropper to 256 x 256 pixels
         self.encode_transform = transforms.Compose(
@@ -85,6 +87,41 @@ def prepare_dataloader(img_size:int, vq_size:int, batch_size: int, is_distribute
     )
 
     return dataloader
+
+def CosineAnneallingWarmupLR(iter:int, warmup_iters: int, decay_iters:int, max_lr: float, min_lr: float):
+
+    # 1) linear warmup for warmup_iters steps
+    if iter < warmup_iters:
+        return max_lr * iter / warmup_iters
+    
+    # 2) if it > lr_decay_iters, return min learning rate
+    if iter > decay_iters:
+        return min_lr
+    
+    # 3) in between, use cosine decay down to min learning rate
+    decay_ratio = (iter - warmup_iters) / (decay_iters - warmup_iters)
+    assert 0 <= decay_ratio <= 1
+    coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio)) # coeff ranges 0..1
+    return min_lr + coeff * (max_lr - min_lr)
+
+def get_lr_scheduler(optimizer, warmup_iters, decay_iters, min_lr, max_lr):
+    # create the linear warmup and cosine decay
+    lr_lambda = lambda iter: CosineAnneallingWarmupLR(iter, warmup_iters, decay_iters, max_lr, min_lr)
+    scheduler = LambdaLR(optimizer, lr_lambda=lr_lambda)
+    return scheduler
+
+def configure_optimizer(model, weight_decay, learning_rate, betas, eps, device_type):
+        fused_available = 'fused' in inspect.signature(torch.optim.AdamW).parameters
+        use_fused = fused_available and device_type == 'cuda'
+        extra_args = dict(fused=True) if use_fused else dict()
+        optimizer = Adafactor(model.parameters(), lr=learning_rate, betas=betas, weight_decay=weight_decay, **extra_args)
+        print(f"using fused AdamW: {use_fused}")
+        return optimizer
+
+# setup the logging directories
+def setup_logging(run_name):
+    os.makedirs("models", exist_ok=True)
+    os.makedirs(os.path.join("models", run_name), exist_ok=True)
     
 if __name__ == "__main__":
 

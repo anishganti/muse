@@ -1,15 +1,14 @@
 import torch
 from transformers import T5EncoderModel
 from model.transformer import BaseTransformer, SuperResTransformer
-from configs.test_config import TestBaseTransformerConfig, TestSuperResTransformerConfig
+from configs.config import TestBaseTransformerConfig, TestSuperResTransformerConfig
 from utils import *
 
 # base transformer model
 model = BaseTransformer(TestBaseTransformerConfig())
-txt_encoder = T5EncoderModel.from_pretrained('t5-small')
+txt_encoder = T5EncoderModel.from_pretrained('google/t5-efficient-base')
 super_model = SuperResTransformer(TestSuperResTransformerConfig(), model)
-tokenizer = T5TokenizerFast.from_pretrained("t5-small")
-
+tokenizer = T5TokenizerFast.from_pretrained("google/t5-efficient-base")
 
 if __name__ == "__main__":
 
