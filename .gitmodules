@@ -1,0 +1,3 @@
+[submodule "muse"]
+	path = muse
+	url = https://github.com/huggingface/open-muse.git

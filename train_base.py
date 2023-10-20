@@ -5,7 +5,7 @@ import logging
 from tqdm import tqdm
 from random import random
 
-from transformers import T5EncoderModel
+from transformers import T5EncoderModel, Adafactor
 
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.tensorboard import SummaryWriter
@@ -37,8 +37,16 @@ class Trainer(nn.Module):
         self.txt_encoder = self.load_text_encoder(args.model_size)
 
         # configure the optimizer
-        self.optimizer = configure_optimizer(self.model, args.weight_decay, args.lr, args.beats, args.eps, args.device_type)
-
+        self.optimizer = Adafactor(
+            params=self.model.parameters(),
+            lr=args.max_lr,
+            beta1=args.beta1,
+            weight_decay=args.weight_decay,
+            relative_step=False,
+            scale_parameter=False,
+            warmup_init=False
+        )
+           
         # configure the learning rate schedule
         self.scheduler = get_lr_scheduler(self.optimizer, args.warmup_iters, args.decay_iters, args.min_lr, args.max_lr)
 
@@ -95,25 +103,52 @@ class Trainer(nn.Module):
                 self.scaler.scale(loss).backward()
 
                 # gradient accumulation process
-                if ((batch_idx + 1) % self.grad_accumulation_steps == 0) or ((i + 1) == l):
-                    self.scaler.step(self.optimizer) # update the optimizer for gradient clipping
+                if ((batch_idx + 1) % self.grad_accumulation_steps == 0) or ((batch_idx + 1) == l):
+                    self.scaler.step(self.optimizer) # update the optimizer
                     self.scaler.update() # update the scale factor
                     self.optimizer.zero_grad(set_to_none=True) # zero out the gradients
 
                 # update the progress bar   
                 pbar.set_postfix(Loss=loss.item())
                 logger.add_scalar("Loss", loss.item(), global_step=epoch * l + batch_idx)
-
+        
+        # save the model for the main GPU
         if (self.local_rank == 0):
             torch.save(self.model.module.state_dict(), os.path.join("models", run_name, f"chkpt.pt"))
-
-        # Save the trained model
-        torch.save(self.model.state_dict(), 'path')
 
 if __name__ == "__main__":
     import argparse
     # setup arguments
     parser = argparse.ArgumentParser()
     args = parser.parse_args()
-    # model config arguments
-    args.
+
+    # distributed training configuration
+    args.local_rank = int(os.environ['LOCAL_RANK']) # local GPU id
+    args.world_size = int(os.environ['WORLD_SIZE']) # the number of GPUs in total
+    args.device = f'cuda:{args.local_rank}'
+
+    torch.cuda.set_device(args.device)
+
+    # meta info config
+    args.img_size = 16
+    args.vq_size = 16
+    args.grad_accumulation_steps = 32
+    args.seed = 1223
+
+    # training config
+    args.amp = True
+    args.model_size = 'base'
+    args.min_lr = 1e-5
+    args.max_lr = 1e-4
+    args.weight_decay = 0.045
+    args.warmup_iters = int(5e3)
+    args.decay_iters = int(1.5e5)
+    
+    # training run configuration
+    args.epochs = 2
+    args.batch_size = 16
+    args.run_name = "Muse_Implementation"
+
+    # run the training
+    trainer = Trainer(args)
+    trainer.train(args.epochs, args.batch_size, args.run_name)

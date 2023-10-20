@@ -110,14 +110,6 @@ def get_lr_scheduler(optimizer, warmup_iters, decay_iters, min_lr, max_lr):
     scheduler = LambdaLR(optimizer, lr_lambda=lr_lambda)
     return scheduler
 
-def configure_optimizer(model, weight_decay, learning_rate, betas, eps, device_type):
-        fused_available = 'fused' in inspect.signature(torch.optim.AdamW).parameters
-        use_fused = fused_available and device_type == 'cuda'
-        extra_args = dict(fused=True) if use_fused else dict()
-        optimizer = Adafactor(model.parameters(), lr=learning_rate, betas=betas, weight_decay=weight_decay, **extra_args)
-        print(f"using fused AdamW: {use_fused}")
-        return optimizer
-
 # setup the logging directories
 def setup_logging(run_name):
     os.makedirs("models", exist_ok=True)
