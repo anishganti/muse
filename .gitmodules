@@ -1,3 +1,6 @@
 [submodule "muse"]
 	path = muse
 	url = https://github.com/huggingface/open-muse.git
+[submodule "open-muse"]
+	path = open-muse
+	url = https://github.com/huggingface/open-muse.git

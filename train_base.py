@@ -8,6 +8,7 @@ from random import random
 from transformers import T5EncoderModel, Adafactor
 
 from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.distributed import init_process_group, destroy_process_group
 from torch.utils.tensorboard import SummaryWriter
 
 
@@ -116,6 +117,12 @@ class Trainer(nn.Module):
         if (self.local_rank == 0):
             torch.save(self.model.module.state_dict(), os.path.join("models", run_name, f"chkpt.pt"))
 
+def main(args):
+    init_process_group(args.backends)
+    trainer = Trainer(args)
+    trainer.train(args.epochs, args.batch_size, args.run_name)
+    destroy_process_group()
+
 if __name__ == "__main__":
     import argparse
     # setup arguments
@@ -123,6 +130,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # distributed training configuration
+    args.backends = 'nccl'
     args.local_rank = int(os.environ['LOCAL_RANK']) # local GPU id
     args.world_size = int(os.environ['WORLD_SIZE']) # the number of GPUs in total
     args.device = f'cuda:{args.local_rank}'
@@ -136,6 +144,7 @@ if __name__ == "__main__":
     args.seed = 1223
 
     # training config
+    args.dtype = 'bfloat16' if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else 'float16'
     args.amp = True
     args.model_size = 'base'
     args.min_lr = 1e-5
@@ -150,5 +159,4 @@ if __name__ == "__main__":
     args.run_name = "Muse_Implementation"
 
     # run the training
-    trainer = Trainer(args)
-    trainer.train(args.epochs, args.batch_size, args.run_name)
+    main(args)
