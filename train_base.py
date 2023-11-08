@@ -112,8 +112,12 @@ class Trainer(nn.Module):
                 # update the progress bar   
                 pbar.set_postfix(Loss=loss.item())
                 logger.add_scalar("Loss", loss.item(), global_step=epoch * l + batch_idx)
+
+                # save the model/checkpoint every 5000 steps for the main GPU
+                if (self.local_rank == 0) and (batch_idx + 1) % 10000 == 0:
+                    torch.save(self.model.module.state_dict(), os.path.join("models", run_name, f"chkpt.pt"))
         
-        # save the model for the main GPU
+        # save the model after all epochs are done
         if (self.local_rank == 0):
             torch.save(self.model.module.state_dict(), os.path.join("models", run_name, f"chkpt.pt"))
 

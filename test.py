@@ -1,13 +1,13 @@
 import torch
 from transformers import T5EncoderModel
 from model.transformer import BaseTransformer, SuperResTransformer
-from configs.config import TestBaseTransformerConfig, TestSuperResTransformerConfig
+from configs.config import BaseTransformerConfig, BaseSuperResConfig
 from utils import *
 
 # base transformer model
-model = BaseTransformer(TestBaseTransformerConfig())
+model = BaseTransformer(BaseTransformerConfig())
 txt_encoder = T5EncoderModel.from_pretrained('google/t5-efficient-base')
-super_model = SuperResTransformer(TestSuperResTransformerConfig(), model)
+super_model = SuperResTransformer(BaseSuperResConfig())
 tokenizer = T5TokenizerFast.from_pretrained("google/t5-efficient-base")
 
 if __name__ == "__main__":
@@ -44,4 +44,5 @@ if __name__ == "__main__":
 
     print("Testing the forward with conditioning scale method for the super res transformer")
     output = super_model.forward_with_cond_scale(sample['image_tokens'], super_sample['image_tokens'], txt_encoder(sample['text_tokens']).last_hidden_state, 0.5)
+    assert output.shape == torch.Size([1, 4096, 8193])
     print("Testing Passed")   

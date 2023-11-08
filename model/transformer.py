@@ -5,7 +5,7 @@ Transformer components for the MUSE model
 """
 
 class SuperResTransformer(nn.Module):
-    def __init__(self, config, base_transformer) -> None:
+    def __init__(self, config) -> None:
         super(SuperResTransformer, self).__init__()
 
         # cache shape information
@@ -36,6 +36,13 @@ class SuperResTransformer(nn.Module):
         self.dropout = nn.Dropout(config.dropout)
         self.lm_head = nn.Linear(config.hidden_size, config.codebook_size)
         self.proj_text = nn.Linear(config.text_hidden_size, config.hidden_size)
+
+        # print the number of parameters in the model
+        print("Number of parameters: %.2fM" % (self.get_num_params_()/1e6,))
+
+    def get_num_params_(self):
+        n_params = sum(p.numel() for p in self.parameters())
+        return n_params
 
     def forward(self, low_res_tokens, hi_res_tokens, text_embedding=None):
 
@@ -121,7 +128,7 @@ class BaseTransformer(nn.Module):
         self.proj_text = nn.Linear(config.text_hidden_size, config.hidden_size)
 
         # print the number of parameters in the model
-        print("NUmber of parameters: %.2fM" % (self.get_num_params_()/1e6,))
+        print("Number of parameters: %.2fM" % (self.get_num_params_()/1e6,))
 
     def get_num_params_(self):
         n_params = sum(p.numel() for p in self.parameters())

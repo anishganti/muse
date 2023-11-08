@@ -1,6 +1,5 @@
 import torch
 import random
-import inspect
 import os
 import math
 
@@ -19,6 +18,7 @@ from PIL import Image
 # libraries for training configuration
 from torch.optim.lr_scheduler import CosineAnnealingLR, LambdaLR, SequentialLR
 
+# the class to process tokens
 class TokenProcessor:
     def __init__(self, encoder_size: str, vq_size: int, img_size: int):
 
@@ -31,29 +31,34 @@ class TokenProcessor:
             ]
         )
 
+        # cache image size
         self.img_size = img_size
 
         # load the tokenizers for both image and text
         self.txt_tokenizer = T5TokenizerFast.from_pretrained(encoder_size)
 
+        # load different vq models depending on image size
         if vq_size == 8:
             self.img_tokenizer = PaellaVQModel.from_pretrained('openMUSE/paellavq-f8-8192-laion')
 
         if vq_size == 16:
             self.img_tokenizer = VQGANModel.from_pretrained('openMUSE/vqgan-f16-8192-laion')
 
+        # randomly insert colors if can't retrieve image
         self.random_colors = ['pink', 'black', 'white', 'blue', 'green', 'yellow']
 
     def to_tokens(self, examples):
         img_batches = []
         txt_batches = []
         for example in examples:
+            # try to get the image from the link
             try:
                 r = requests.get(example['url'], stream=True)
                 image = self.encode_transform(Image.open(io.BytesIO(r.content))).unsqueeze(0)
                 img_batches.append(self.img_tokenizer.encode(image)[1])
                 txt_batches.append(self.txt_tokenizer(example['caption'], return_tensors='pt').input_ids[0])
-
+            
+            # if it can't get the picture, just insert some solid color background
             except:
                 idx = random.randint(0, len(self.random_colors) - 1)
                 color = self.random_colors[idx]
@@ -64,6 +69,7 @@ class TokenProcessor:
 
         return {'image_tokens': torch.cat(img_batches, dim=0).long(), 'text_tokens': pad_sequence(txt_batches, batch_first=True, padding_value=1)}
 
+    # try to transform from pil image into actual image
     def decode_transform(self, rec_img):
         rec_img = 2.0 * rec_img - 1.0
         rec_img = torch.clamp(rec_img, -1.0, 1.0)
@@ -76,7 +82,7 @@ class TokenProcessor:
     
 def prepare_dataloader(img_size:int, vq_size:int, batch_size: int, is_distributed: bool):
     # dataset 
-    ds = load_dataset("laion/laion400m", split="train[:96]").to_iterable_dataset().with_format('torch')
+    ds = load_dataset("laion/laion400m", split="train").to_iterable_dataset().with_format('torch')
     processor = TokenProcessor('t5-small', vq_size, img_size)
     sampler = DistributedSampler(ds['train']) if is_distributed else None
     dataloader = DataLoader(
@@ -116,7 +122,7 @@ def setup_logging(run_name):
     os.makedirs(os.path.join("models", run_name), exist_ok=True)
     
 if __name__ == "__main__":
-
     loader = prepare_dataloader(256, 16, 8, False)
     sample = next(iter(loader))
-    print(sample)
+    print(sample['image_tokens'])
+    print(sample['text_tokens'])
