@@ -2,6 +2,7 @@ import torch
 import random
 import os
 import math
+import importlib  
 
 # libraries for data-processing
 from datasets import load_dataset
@@ -12,7 +13,8 @@ from torch.utils.data import DataLoader, DistributedSampler
 import numpy as np
 import requests
 import io
-from muse.muse import VQGANModel, PaellaVQModel
+open_muse = importlib.import_module("open-muse")
+from open_muse.muse import VQGANModel, PaellaVQModel
 from PIL import Image
 
 # libraries for training configuration
