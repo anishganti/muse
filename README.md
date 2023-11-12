@@ -6,6 +6,13 @@ After git cloning the repository, make sure to run the following script.
 ```
 pip install -r requirements.txt
 ```
+### Installing Dependencies
+Our model also depends on pretrained VQGAN models from [Laion](https://github.com/huggingface/open-muse), so clone their repository to get all the dependencies required.
+```
+git clone https://github.com/huggingface/open-muse
+cd open-muse
+pip install -e ".[extra]"
+```
 ### Configuring Compute Resources
 For the purpose of our project, we used Google Cloud's Virtual Machine services and use the following specifications for our compute resource.
 
