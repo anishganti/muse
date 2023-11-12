@@ -42,6 +42,9 @@ The data we decided to use was LAION's 400 Million pairs of text-image pairs. Ho
 Due to limitations in our compute resources, we use the 'base' size model of the T5 Encoder which has an embedding dimension of 768. We also used Laion's pretrained VQ models. In particular, we used their VQGAN model for training the base model and the PaellaVQ model for the super-resolution model.
 
 ## Architecture
-Although the paper gives us an oveview of the architecture, they don't give the fine details which leaves us some room for our own take of the model. We noticed that across the implementations 
+Although the paper gives us an oveview of the architecture, they don't give the fine details which leaves us some room for our own take of the model. We differed from most implementations of the Muse model by implementing our own version of multi-axis attention for the super resolution model.
+
+### Multi-Axis Attention
+Our implementation sub-divides a 64 X 64 tokens image tokens into 8
 
 ## Results
