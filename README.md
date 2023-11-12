@@ -42,9 +42,9 @@ The data we decided to use was LAION's 400 Million pairs of text-image pairs. Ho
 Due to limitations in our compute resources, we use the 'base' size model of the T5 Encoder which has an embedding dimension of 768. We also used Laion's pretrained VQ models. In particular, we used their VQGAN model for training the base model and the PaellaVQ model for the super-resolution model.
 
 ## Architecture
-Although the paper gives us an oveview of the architecture, they don't give the fine details which leaves us some room for our own take of the model. We differed from most implementations of the Muse model by implementing our own version of multi-axis attention for the super resolution model.
+Although the paper gives us an oveview of the architecture, they don't give the fine details which leaves us some room for our own take of the model. We differed from most implementations of the Muse model by implementing our own version of multi-axis attention for the super resolution model and using the output for cross-attention between the flattenend base model output.
 
 ### Multi-Axis Attention
-Our implementation sub-divides a 64 X 64 tokens image tokens into 8
+Our implementation sub-divides a $64 \times 64$ image tokens into 64 patches of size $8 \times 8$. We then flatten each patches transforming the dimension from $\H \times W\$ to $\P \times (H \times W)\$. We project this input and sub divide the embedding dimension into h different heads. Afterwards, we split half of the heads and use the last half to swap the dimensions between the number of patches and patches length. We do this so that our model captures within and across patches attention. The multi-axis attention mechanism is important because it reduces the computation time for self-attention from  $O(n^2)$ to $O(\sqrt(n))$.
 
 ## Results
