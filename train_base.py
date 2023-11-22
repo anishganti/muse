@@ -12,7 +12,7 @@ from torch.distributed import init_process_group, destroy_process_group
 from torch.utils.tensorboard import SummaryWriter
 
 
-class Trainer(nn.Module):
+class Trainer():
     def __init__(self, args):
 
         # cache some information
@@ -156,7 +156,7 @@ if __name__ == "__main__":
     args.weight_decay = 0.045
     args.warmup_iters = int(5e3)
     args.decay_iters = int(1.5e5)
-    
+    args.beta1 = 0.9
     # training run configuration
     args.epochs = 2
     args.batch_size = 16
