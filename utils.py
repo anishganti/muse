@@ -13,7 +13,7 @@ from torch.utils.data import DataLoader, DistributedSampler
 import numpy as np
 import requests
 import io
-open_muse = importlib.import_module("open-muse")
+
 from open_muse.muse import VQGANModel, PaellaVQModel
 from PIL import Image
 
