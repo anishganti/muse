@@ -6,19 +6,18 @@ import importlib
 
 # libraries for data-processing
 from datasets import load_dataset
-from transformers import T5TokenizerFast, Adafactor
+from transformers import T5TokenizerFast
 from torchvision import transforms
 from torch.nn.utils.rnn import pad_sequence
-from torch.utils.data import DataLoader  
+from torch.utils.data import DataLoader, DistributedSampler
 import numpy as np
 import requests
 import io
-
 from open_muse.muse import VQGANModel, PaellaVQModel
 from PIL import Image
 
 # libraries for training configuration
-from torch.optim.lr_scheduler import CosineAnnealingLR, LambdaLR, SequentialLR
+from torch.optim.lr_scheduler import LambdaLR
 
 # the class to process tokens
 class TokenProcessor:
@@ -82,17 +81,18 @@ class TokenProcessor:
 
         return pil_images
     
-def prepare_dataloader(img_size:int, vq_size:int, batch_size: int):
+def prepare_dataloader(img_size:int, vq_size:int, batch_size: int, is_distributed: bool):
     # dataset 
     ds = load_dataset("laion/laion400m", split="train").to_iterable_dataset().with_format('torch')
     processor = TokenProcessor('t5-small', vq_size, img_size)
+    sampler = DistributedSampler(ds['train']) if is_distributed else None
     dataloader = DataLoader(
         dataset=ds,
         collate_fn=processor.to_tokens,
         batch_size=batch_size
     )
 
-    return dataloader
+    return dataloader, l
 
 def CosineAnneallingWarmupLR(iter:int, warmup_iters: int, decay_iters:int, max_lr: float, min_lr: float):
 
@@ -122,7 +122,8 @@ def setup_logging(run_name):
     os.makedirs(os.path.join("models", run_name), exist_ok=True)
     
 if __name__ == "__main__":
-    loader = prepare_dataloader(256, 16, 8, False)
+    loader, l = prepare_dataloader('base', 256, 16, 2)
+    print(l)
     sample = next(iter(loader))
     print(sample['image_tokens'])
     print(sample['text_tokens'])

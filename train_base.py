@@ -20,6 +20,7 @@ class Trainer():
         self.img_size = args.img_size
         self.vq_size = args.vq_size
         self.grad_accumulation_steps = args.grad_accumulation_steps
+        self.model_size = args.model_size
 
         # setting up the backends calculation
         torch.manual_seed(args.seed)
@@ -67,13 +68,12 @@ class Trainer():
     def train(self, epochs, batch_size, run_name):
 
         # prepare the dataloader
-        dataloader = prepare_dataloader(self.img_size, self.vq_size, batch_size) 
+        dataloader = prepare_dataloader(self.model_size, self.img_size, self.vq_size, batch_size)
 
         # save the model if it is on the main GPU
         if self.local_rank == 0:
             logger = SummaryWriter(os.path.join('runs', run_name))
 
-        l = len(dataloader)
         self.model.train() # turn on the model for training
 
         # Training loop
