@@ -9,7 +9,7 @@ from datasets import load_dataset
 from transformers import T5TokenizerFast, Adafactor
 from torchvision import transforms
 from torch.nn.utils.rnn import pad_sequence
-from torch.utils.data import DataLoader, DistributedSampler
+from torch.utils.data import DataLoader  
 import numpy as np
 import requests
 import io
@@ -82,15 +82,13 @@ class TokenProcessor:
 
         return pil_images
     
-def prepare_dataloader(img_size:int, vq_size:int, batch_size: int, is_distributed: bool):
+def prepare_dataloader(img_size:int, vq_size:int, batch_size: int):
     # dataset 
     ds = load_dataset("laion/laion400m", split="train").to_iterable_dataset().with_format('torch')
     processor = TokenProcessor('t5-small', vq_size, img_size)
-    sampler = DistributedSampler(ds['train']) if is_distributed else None
     dataloader = DataLoader(
         dataset=ds,
         collate_fn=processor.to_tokens,
-        sampler=sampler if is_distributed else None,
         batch_size=batch_size
     )
 

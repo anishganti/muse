@@ -67,7 +67,7 @@ class Trainer():
     def train(self, epochs, batch_size, run_name):
 
         # prepare the dataloader
-        dataloader = prepare_dataloader(self.img_size, self.vq_size, batch_size, is_distributed=True)
+        dataloader = prepare_dataloader(self.img_size, self.vq_size, batch_size) 
 
         # save the model if it is on the main GPU
         if self.local_rank == 0:
@@ -80,7 +80,7 @@ class Trainer():
         for epoch in range(epochs):
 
             logging.info(f"Starting epoch {epoch + 1} on GPU {self.local_rank}:")
-            dataloader.sampler.set_epoch(epoch) # shuffler for the distributed dataloader
+            # dataloader.sampler.set_epoch(epoch) # shuffler for the distributed dataloader
             print(f"Epoch {epoch + 1} on GPU {self.local_rank}: ")
             pbar = tqdm(dataloader)
 
