@@ -86,13 +86,12 @@ class Trainer():
             for batch_idx, sample in enumerate(dataloader):
                 p = random()
 
-                # only include text conditioning 90% of the time
-                if p < 0.1:
-                    img_tokens, text_emb = sample['image_tokens'].to(self.local_rank), None
-                
-                else:
-                    text_emb = self.txt_encoder(sample['text_tokens']).last_hidden_state.to(self.local_rank)
-                    img_tokens = sample['image_tokens'].to(self.local_rank)
+                # transfer the sample tokens to GPU
+                img_tokens = sample['image_tokens']
+                img_tokens = mask_tokens(img_tokens).to(self.local_rank)
+
+                # include the text conditionining 90% of the time
+                text_emb = self.txt_encoder(sample['text_tokens']).last_hidden_state.to(self.local_rank) if p >= 0.1 else None
 
                 with self.ctx:
                     outputs = self.model(img_tokens, text_emb)

@@ -115,6 +115,18 @@ def CosineAnneallingWarmupLR(iter:int, warmup_iters: int, decay_iters:int, max_l
     coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio)) # coeff ranges 0..1
     return min_lr + coeff * (max_lr - min_lr)
 
+def mask_tokens(tokens, token_idx: int=8193):
+    # create the masking rate
+    r = random.random()
+    p = 2/math.pi * (1 - r**2) ** (-1/2)
+    print(p)
+
+    # randomly mask the tokens based on the percentage
+    mask = torch.randn(tokens.size()) < p
+    tokens[mask] = 8193
+    return tokens
+
+
 def get_lr_scheduler(optimizer, warmup_iters, decay_iters, min_lr, max_lr):
     # create the linear warmup and cosine decay
     lr_lambda = lambda iter: CosineAnneallingWarmupLR(iter, warmup_iters, decay_iters, max_lr, min_lr)
@@ -131,4 +143,4 @@ if __name__ == "__main__":
     print(l)
     sample = next(iter(loader))
     print(sample['image_tokens'])
-    print(sample['text_tokens'])
+    print(mask_tokens(sample['image_tokens']))
