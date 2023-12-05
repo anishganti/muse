@@ -18,7 +18,8 @@ if __name__ == "__main__":
     sample = next(iter(loader))
 
     print("Testing the forward method with no text input")
-    output = model(sample['image_tokens'], None)
+    img_tokens = mask_tokens(sample['image_tokens'])
+    output = model(img_tokens, None)
     loss = torch.nn.functional.cross_entropy(output.view(-1, output.size(-1)), sample['image_tokens'].view(-1))
     print(loss)
     assert output.shape == torch.Size([2, 256, 8193])
