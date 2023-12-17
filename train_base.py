@@ -84,17 +84,18 @@ class Trainer():
             pbar = tqdm(dataloader)
 
             for batch_idx, sample in enumerate(dataloader):
-                p = random()
+                p = random() # used to stochastically chose which images gets a text embedding
 
                 # transfer the sample tokens to GPU
-                img_tokens = sample['image_tokens']
-                img_tokens = mask_tokens(img_tokens).to(self.local_rank)
+                img_tokens = sample['image_tokens'].to(self.local_rank)
+                mask_img_tokens = mask_tokens(img_tokens)
 
                 # include the text conditionining 90% of the time
                 text_emb = self.txt_encoder(sample['text_tokens']).last_hidden_state.to(self.local_rank) if p >= 0.1 else None
 
                 with self.ctx:
-                    outputs = self.model(img_tokens, text_emb)
+                    # input the masked tokens and then compare it to the pre-masked one
+                    outputs = self.model(mask_img_tokens, text_emb)
                     loss = self.criterion(outputs.view(-1, outputs.size(-1)), img_tokens.view(-1))
                     loss = loss / self.grad_accumulation_steps
 
@@ -140,7 +141,7 @@ if __name__ == "__main__":
     torch.cuda.set_device(args.device)
 
     # meta info config
-    args.img_size = 16
+    args.img_size = 256
     args.vq_size = 16
     args.grad_accumulation_steps = 32
     args.seed = 1223

@@ -51,15 +51,25 @@ class TokenProcessor:
         img_batches = []
         txt_batches = []
         for example in examples:
+            # try to get a random color just in case it can't get the link for the image
+            idx = random.randint(0, len(self.random_colors) - 1)
+            color = self.random_colors[idx]
+            working_link = True
+
             # try to get the image from the link
             try:
                 r = requests.get(example['url'], stream=True)
+
+            except:
+                working_link = False
+
+            if working_link:
                 image = self.encode_transform(Image.open(io.BytesIO(r.content))).unsqueeze(0)
                 img_batches.append(self.img_tokenizer.encode(image)[1])
-                txt_batches.append(self.txt_tokenizer(example['caption'], return_tensors='pt').input_ids[0])
+                txt_batches.append(self.txt_tokenizer(example['caption'], truncation=True, return_tensors='pt').input_ids[0])
             
             # if it can't get the picture, just insert some solid color background
-            except:
+            else:
                 idx = random.randint(0, len(self.random_colors) - 1)
                 color = self.random_colors[idx]
                 image = self.encode_transform(Image.new('RGB', (self.img_size, self.img_size), color=color)).unsqueeze(0)
@@ -142,5 +152,5 @@ if __name__ == "__main__":
     loader, l = prepare_dataloader('base', 256, 16, 2)
     print(l)
     sample = next(iter(loader))
-    print(sample['image_tokens'])
-    print(mask_tokens(sample['image_tokens']))
+    print(sample['image_tokens'].shape)
+    print(mask_tokens(sample['image_tokens']).shape)
