@@ -60,13 +60,14 @@ class TokenProcessor:
             try:
                 r = requests.get(example['url'], stream=True)
                 image = self.encode_transform(Image.open(io.BytesIO(r.content))).unsqueeze(0)
+                img_tokens = self.img_tokenizer.encode(image)[1] # some pictures for some reason breaks so if it doesn't work then move to solid
 
             except:
                 working_link = False
 
             if working_link:
                 print("Actual picture")
-                img_batches.append(self.img_tokenizer.encode(image)[1])
+                img_batches.append(img_tokens)
                 txt_batches.append(self.txt_tokenizer(example['caption'], truncation=True, return_tensors='pt').input_ids[0])
             
             # if it can't get the picture, just insert some solid color background
