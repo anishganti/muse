@@ -59,12 +59,12 @@ class TokenProcessor:
             # try to get the image from the link
             try:
                 r = requests.get(example['url'], stream=True)
+                image = self.encode_transform(Image.open(io.BytesIO(r.content))).unsqueeze(0)
 
             except:
                 working_link = False
 
             if working_link:
-                image = self.encode_transform(Image.open(io.BytesIO(r.content))).unsqueeze(0)
                 img_batches.append(self.img_tokenizer.encode(image)[1])
                 txt_batches.append(self.txt_tokenizer(example['caption'], truncation=True, return_tensors='pt').input_ids[0])
             
