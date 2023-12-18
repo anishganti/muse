@@ -65,11 +65,13 @@ class TokenProcessor:
                 working_link = False
 
             if working_link:
+                print("Actual picture")
                 img_batches.append(self.img_tokenizer.encode(image)[1])
                 txt_batches.append(self.txt_tokenizer(example['caption'], truncation=True, return_tensors='pt').input_ids[0])
             
             # if it can't get the picture, just insert some solid color background
             else:
+                print("Solid color")
                 idx = random.randint(0, len(self.random_colors) - 1)
                 color = self.random_colors[idx]
                 image = self.encode_transform(Image.new('RGB', (self.img_size, self.img_size), color=color)).unsqueeze(0)
