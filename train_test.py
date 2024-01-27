@@ -8,13 +8,18 @@ from random import random
 from transformers import T5EncoderModel, Adafactor
 from torch.utils.tensorboard import SummaryWriter
 
+
 class TestTrainer():
     def __init__(self, args):
+        # cache some metainformation
+        self.config_path = args.config_path
+        self.ckpt_path = args.ckpt_path
+        self.path2ann = args.path2ann
+        self.path2img = args.path2img
 
         # cache some information
         self.device = args.device
         self.img_size = args.img_size
-        self.vq_size = args.vq_size
         self.grad_accumulation_steps = args.grad_accumulation_steps
         self.model_size = args.model_size
 
@@ -57,8 +62,16 @@ class TestTrainer():
 
     def train(self, batch_size):
 
-        dataloader, l = prepare_dataloader(self.model_size, self.img_size, self.vq_size, batch_size)
-        sample = next(iter(dataloader)) # get 1 sample from the loader
+        dataloader = prepare_dataloader(
+            model_size=self.model_size,
+            img_size=self.img_size,
+            config_path=self.config_path,
+            ckpt_path=self.ckpt_path,
+            batch_size=batch_size,
+            path2img=self.path2img,
+            path2caps=self.path2ann
+        )
+        sample = next(iter(dataloader))
 
         self.model.train() # turn on the model for training
 
@@ -110,31 +123,36 @@ if __name__ == "__main__":
     import argparse
     # setup arguments
     parser = argparse.ArgumentParser()
-
-    # training parameters
-    parser.add_argument("batch_size", type=int, help="The batch size for the training")
-    parser.add_argument("--grad_accumulation_steps", type=int, default=32, help="The number of accumulation step")
-
-    # create a list of arguments for the training setup
-    parser.add_argument("--device", type=str, default="mps", help="The device used for the whole training process")
-    
-    # mixed training arguments
-    parser.add_argument("--amp", type=bool, default=False, help="Turn on mixed-precision training")
-    parser.add_argument("--dtype", type=str, default="float32", help="The floating point used for mixed-precision training")
-
-    # vq-tokenizer parameters
-    parser.add_argument("--img_size", type=int, default=256, help="The image size of the vq tokenizer")
-    parser.add_argument("--vq_size", type=int, default=16, help="The divisor for the vq tokenizer")
-    parser.add_argument("--model_size", type=str, default='base', help="The size of the T5 embedder")
-
-    # training configuration
-    parser.add_argument("--min_lr", type=float, default=1e-5, help="The minimum learning rate for the schedule")
-    parser.add_argument("--max_lr", type=float, default=1e-4, help="The maximum learning rate of the schedule")
-    parser.add_argument("--weight_decay", type=float, default=0.045, help="The weight decay for the optimizer")
-    parser.add_argument("--warmup_iters", type=int, default=int(5e3), help="The number of warmup iteration for the scheduler")
-    parser.add_argument("--decay_iters", type=int, default=int(1.5e5), help="The number of decay iterations for the scheduler")
-    parser.add_argument("--beta1", type=float, default=0.9, help="The beta for the optimizer")
-
     args = parser.parse_args()
+
+    args.device = "cpu"
+
+    # information on the vq tokenizer
+    args.config_path = "/Users/radiakbar/Projects/muse/configs/vqgan_imagenet_f16_16384/model.yaml"
+    args.ckpt_path = "/Users/radiakbar/Projects/muse/configs/vqgan_imagenet_f16_16384/last.ckpt"
+
+    # path of the coco dataset
+    args.path2ann = "/Users/radiakbar/Projects/muse/coco_dataset/annotations/captions_val2017.json"
+    args.path2img = "/Users/radiakbar/Projects/muse/coco_dataset/val2017"
+
+    # meta info config
+    args.img_size = 256
+    args.grad_accumulation_steps = 32
+    args.seed = 1223
+
+    # training config
+    args.dtype = 'bfloat16'
+    args.amp = False
+    args.model_size = 'base'
+    args.min_lr = 1e-5
+    args.max_lr = 1e-4
+    args.weight_decay = 0.045
+    args.warmup_iters = int(5e3)
+    args.decay_iters = int(1.5e5)
+    args.beta1 = 0.9
+    # training run configuration
+    args.epochs = 2
+    args.batch_size = 16
+    args.run_name = "Muse_Implementation"
 
     main(args)

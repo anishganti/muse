@@ -1,18 +1,22 @@
 import torch
 import random
 import os
-import math  
+import math
+
+import yaml
+from omegaconf import OmegaConf
+
+# importing vqgan stuff
+from taming.models.vqgan import VQModel
 
 # libraries for data-processing
-from datasets import load_dataset
 from transformers import T5TokenizerFast
-from torchvision import transforms
+import torchvision.transforms as T
+import torchvision.transforms.functional as TF
+from torchvision.datasets.coco import CocoCaptions
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader
 import numpy as np
-import requests
-import io
-from open_muse.muse import VQGANModel, PaellaVQModel
 from PIL import Image
 
 # libraries for training configuration
@@ -20,16 +24,14 @@ from torch.optim.lr_scheduler import LambdaLR
 
 # the class to process tokens
 class TokenProcessor:
-    def __init__(self, encoder_size: str, vq_size: int, img_size: int):
-
-        # the image normalizer/recropper to 256 x 256 pixels
-        self.encode_transform = transforms.Compose(
-            [
-                transforms.Resize(img_size, interpolation=transforms.InterpolationMode.BILINEAR),
-                transforms.CenterCrop(img_size),
-                transforms.ToTensor()
-            ]
-        )
+    def __init__(
+        self, 
+        encoder_size: str, 
+        img_size: int,
+        config_path: str,
+        ckpt_path: str, 
+        device='cpu'
+    ):
 
         # cache image size
         self.img_size = img_size
@@ -37,82 +39,105 @@ class TokenProcessor:
         # load the tokenizers for both image and text
         self.txt_tokenizer = T5TokenizerFast.from_pretrained(encoder_size)
 
-        # load different vq models depending on image size
-        if vq_size == 8:
-            self.img_tokenizer = PaellaVQModel.from_pretrained('openMUSE/paellavq-f8-8192-laion')
+        # load vq model based on config and size
+        config_model = self.load_config(config_path)
+        with torch.no_grad():
+            self.img_tokenizer = self.load_vqgan(config_model, ckpt_path).to(device)
 
-        if vq_size == 16:
-            self.img_tokenizer = VQGANModel.from_pretrained('openMUSE/vqgan-f16-8192-laion')
+    def load_vqgan(self, config, ckpt_path=None):
+        model = VQModel(**config.model.params)
+        if ckpt_path is not None:
+            sd = torch.load(ckpt_path, map_location="cpu")["state_dict"]
+            missing, unexpected = model.load_state_dict(sd, strict=False)
+        return model.eval()
 
-        # randomly insert colors if can't retrieve image
-        self.random_colors = ['pink', 'black', 'white', 'blue', 'green', 'yellow']
+    def load_config(self, config_path, display=False):
+        config = OmegaConf.load(config_path)
+        if display:
+            print(yaml.dump(OmegaConf.to_container(config)))
+        return config
 
     def to_tokens(self, examples):
         img_batches = []
         txt_batches = []
-        for example in examples:
-            # try to get a random color just in case it can't get the link for the image
-            idx = random.randint(0, len(self.random_colors) - 1)
-            color = self.random_colors[idx]
-            working_link = True
+        for img, caps in examples:
+            # random integer to randomly select one of the 5 captions
+            idx = random.randint(0, 4)
 
-            # try to get the image from the link
-            try:
-                r = requests.get(example['url'], stream=True)
-                image = self.encode_transform(Image.open(io.BytesIO(r.content))).unsqueeze(0)
-                img_tokens = self.img_tokenizer.encode(image)[1] # some pictures for some reason breaks so if it doesn't work then move to solid
+            z, _, [_, _, indices] = self.img_tokenizer.encode(self.preprocess_vqgan(self.preprocess(img)))
 
-            except:
-                working_link = False
+            # append the image tokens and one of the 5 cpations
+            img_batches.append(indices.transpose(1, 0))
+            txt_batches.append(self.txt_tokenizer(caps[idx], truncation=True, return_tensors='pt').input_ids[0])
 
-            if working_link:
-                print("Actual picture")
-                img_batches.append(img_tokens)
-                txt_batches.append(self.txt_tokenizer(example['caption'], truncation=True, return_tensors='pt').input_ids[0])
+        return {"image_tokens": torch.cat(img_batches, dim=0).long(), "text_tokens": pad_sequence(txt_batches, batch_first=True, padding_value=1)}
+    
+    def preprocess_vqgan(self, x):
+        x = 2.*x - 1.
+        return x
+    
+    def preprocess(self, img, target_image_size=256,):
+        s = min(img.size)
+        
+        if s < target_image_size:
+            s = target_image_size
             
-            # if it can't get the picture, just insert some solid color background
-            else:
-                print("Solid color")
-                idx = random.randint(0, len(self.random_colors) - 1)
-                color = self.random_colors[idx]
-                image = self.encode_transform(Image.new('RGB', (self.img_size, self.img_size), color=color)).unsqueeze(0)
-                caption = f"Solid {color} picture"
-                img_batches.append(self.img_tokenizer.encode(image)[1])
-                txt_batches.append(self.txt_tokenizer(caption, return_tensors='pt').input_ids[0])
-
-        return {'image_tokens': torch.cat(img_batches, dim=0).long(), 'text_tokens': pad_sequence(txt_batches, batch_first=True, padding_value=1)}
+        r = target_image_size / s
+        s = (round(r * img.size[1]), round(r * img.size[0]))
+        img = TF.resize(img, s, interpolation=Image.LANCZOS)
+        img = TF.center_crop(img, output_size=2 * [target_image_size])
+        img = torch.unsqueeze(T.ToTensor()(img), 0)
+        return img
 
     # try to transform from pil image into actual image
-    def decode_transform(self, rec_img):
-        rec_img = 2.0 * rec_img - 1.0
-        rec_img = torch.clamp(rec_img, -1.0, 1.0)
-        rec_img = (rec_img + 1.0) / 2.0
-        rec_img *= 255.0
-        rec_img = rec_img.permute(0, 2, 3, 1).cpu().numpy().astype(np.uint8)
-        pil_images = [Image.fromarray(img) for img in rec_img]
-
-        return pil_images
+    def decode_transform(self, x):
+        x = x.detach().cpu()
+        x = torch.clamp(x, -1., 1.)
+        x = (x + 1.)/2.
+        x = x.permute(1,2,0).numpy()
+        x = (255*x).astype(np.uint8)
+        x = Image.fromarray(x)
+        if not x.mode == "RGB":
+            x = x.convert("RGB")
+        return x
     
-def prepare_dataloader(model_size: str, img_size:int, vq_size:int, batch_size: int):
-    # dataset 
-    ds = load_dataset("laion/laion400m", split="train").to_iterable_dataset().with_format('torch')
-    processor = TokenProcessor(f't5-{model_size}', vq_size, img_size)
-    # use metainformation on data to find the length of the dataset
-    if 401300000 % batch_size > 0:
-        l = 401300000 // batch_size
+def prepare_dataloader(
+        model_size:str, 
+        img_size:int, 
+        config_path: str,
+        ckpt_path: str, 
+        batch_size: int,
+        path2img:str,
+        path2caps:str
+    ) -> None:
 
-    elif 401300000 % batch_size == 0:
-        l = 401300000 // batch_size + 1
-
+    """
+    model_size: Size of the text encoder
+    img_size: The intended height and width of the image
+    vq_size: The divisor for the total number of tokens after tokenized
+    batch_size: Batch size of the dataset
+    path2img: The path to the COCO images
+    path2caps: The path to the captions of the images
+    """
+    # coco dataset
+    ds = CocoCaptions(root=path2img, annFile=path2caps)
+    # create the tokenizer and the batcher function
+    processor = TokenProcessor(
+        encoder_size=f't5-{model_size}',  
+        img_size=img_size, 
+        config_path=config_path, 
+        ckpt_path=ckpt_path
+        )
+    # create the batched dataset
     dataloader = DataLoader(
         dataset=ds,
         collate_fn=processor.to_tokens,
         batch_size=batch_size
     )
 
-    return dataloader, l
+    return dataloader
 
-def CosineAnneallingWarmupLR(iter:int, warmup_iters: int, decay_iters:int, max_lr: float, min_lr: float):
+def CosineAnneallingWarmupLR(iter:int, warmup_iters: int, decay_iters:int, max_lr: float, min_lr: float) -> float:
 
     # 1) linear warmup for warmup_iters steps
     if iter < warmup_iters:
@@ -128,11 +153,13 @@ def CosineAnneallingWarmupLR(iter:int, warmup_iters: int, decay_iters:int, max_l
     coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio)) # coeff ranges 0..1
     return min_lr + coeff * (max_lr - min_lr)
 
-def mask_tokens(tokens, token_idx: int=8192):
+def mask_tokens(tokens, token_idx: int=16384):
     # create the masking rate
-    r = random.random()
-    p = 2/math.pi * (1 - r**2) ** (-1/2)
-    print(p)
+    p = 1
+
+    while p >= 1:
+        r = random.random()
+        p = 2/math.pi * (1 - r**2) ** (-1/2)
 
     # randomly mask the tokens based on the percentage
     mask = torch.randn(tokens.size()) < p
@@ -152,8 +179,19 @@ def setup_logging(run_name):
     os.makedirs(os.path.join("models", run_name), exist_ok=True)
     
 if __name__ == "__main__":
-    loader, l = prepare_dataloader('base', 256, 16, 2)
-    print(l)
-    sample = next(iter(loader))
-    print(sample['image_tokens'].shape)
-    print(mask_tokens(sample['image_tokens']).shape)
+    path2data = "/Users/radiakbar/Projects/muse/coco_dataset/val2017"
+    path2ann = "/Users/radiakbar/Projects/muse/coco_dataset/annotations/captions_val2017.json"
+
+    loader = prepare_dataloader(
+        model_size='base', 
+        img_size=256, 
+        config_path="configs/vqgan_imagenet_f16_16384/model.yaml",
+        ckpt_path="configs/vqgan_imagenet_f16_16384/last.ckpt", 
+        batch_size=2,
+        path2img=path2data,
+        path2caps=path2ann
+    )
+    print('Length of the dataset: ', len(loader))
+    img, cap = next(iter(loader))
+    print(img)
+    print(mask_tokens(img))

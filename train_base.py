@@ -15,6 +15,12 @@ from torch.utils.tensorboard import SummaryWriter
 class Trainer():
     def __init__(self, args):
 
+        # cache some metainformation
+        self.config_path = args.config_path
+        self.ckpt_path = args.ckpt_path
+        self.path2ann = args.path2ann
+        self.path2img = args.path2img
+
         # cache some information
         self.local_rank = args.local_rank
         self.img_size = args.img_size
@@ -68,7 +74,15 @@ class Trainer():
     def train(self, epochs, batch_size, run_name):
 
         # prepare the dataloader
-        dataloader, l = prepare_dataloader(self.model_size, self.img_size, self.vq_size, batch_size)
+        dataloader = prepare_dataloader(
+            model_size=self.model_size,
+            img_size=self.img_size,
+            config_path=self.config_path,
+            ckpt_path=self.ckpt_path,
+            batch_size=batch_size,
+            path2img=self.path2img,
+            path2caps=self.path2ann
+        )
 
         # save the model if it is on the main GPU
         if self.local_rank == 0:
@@ -82,6 +96,7 @@ class Trainer():
             logging.info(f"Starting epoch {epoch + 1} on GPU {self.local_rank}:")
             print(f"Epoch {epoch + 1} on GPU {self.local_rank}: ")
             pbar = tqdm(dataloader)
+            l = len(dataloader)
 
             for batch_idx, sample in enumerate(dataloader):
                 p = random() # used to stochastically chose which images gets a text embedding
@@ -142,13 +157,12 @@ if __name__ == "__main__":
 
     # meta info config
     args.img_size = 256
-    args.vq_size = 16
     args.grad_accumulation_steps = 32
     args.seed = 1223
 
     # training config
     args.dtype = 'bfloat16' if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else 'float16'
-    args.amp = True
+    args.amp = False
     args.model_size = 'base'
     args.min_lr = 1e-5
     args.max_lr = 1e-4
@@ -156,6 +170,15 @@ if __name__ == "__main__":
     args.warmup_iters = int(5e3)
     args.decay_iters = int(1.5e5)
     args.beta1 = 0.9
+
+    # information on the vq tokenizer
+    args.config_path = "/Users/radiakbar/Projects/muse/configs/vqgan_imagenet_f16_16384/model.yaml"
+    args.ckpt_path = "/Users/radiakbar/Projects/muse/configs/vqgan_imagenet_f16_16384/last.ckpt"
+
+    # path of the coco dataset
+    args.path2ann = "/Users/radiakbar/Projects/muse/coco_dataset/annotations/captions_val2017.json"
+    args.path2img = "/Users/radiakbar/Projects/muse/coco_dataset/val2017"
+
     # training run configuration
     args.epochs = 2
     args.batch_size = 16

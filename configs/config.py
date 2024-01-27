@@ -5,15 +5,15 @@ import torch
 class BaseTransformerConfig():
     # image specific configuration
     img_size: int = 16
-    codebook_size: int = 8193
+    codebook_size: int = 16385
 
     # text specific configuration
     text_hidden_size: int = 768 # dimension of t5-xxl
 
     # model configuration
-    hidden_size: int = 768
-    num_head: int = 12
-    num_layer: int = 18
+    hidden_size: int = 512
+    num_head: int = 8
+    num_layer: int = 6
     dropout: float = 0.1
 
 @dataclass
