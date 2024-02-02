@@ -1,18 +1,31 @@
 # Open Source Muse
 We are a part of Roundtable ML's text-to-image group that's working on an open source implementation of the Muse model from Google.
 ## Instructions
-### Installing The Requirements
+### Installing the COCO dataset
+First install pyprotocols:
+```
+$ git clone https://github.com/pdollar/coco/
+$ cd coco/PythonAPI
+$ make
+$ python setup.py install
+$ cd ../..
+$ rm -r coco
+```
+
+Second download the raw data from the COCO website:
+```
+$ wget 'http://images.cocodataset.org/zips/train2017.zip' -O 'configs/vqgan_imagenet_f16_16384/train2017.zip'
+$ wget 'http://images.cocodataset.org/annotations/annotations_trainval2017.zip' -O 'configs/vqgan_imagenet_f16_1638/annotations_trainval2017.zip'
+```
+### Installing the VQGAN components
+```
+$ wget 'https://heibox.uni-heidelberg.de/f/867b05fc8c4841768640/?dl=1' -O 'configs/vqgan_imagenet_f16_16384/checkpoints/last.ckpt'
+$ wget 'https://heibox.uni-heidelberg.de/f/274fb24ed38341bfa753/?dl=1' -O 'configs/vqgan_imagenet_f16_16384/checkpoints/model.yaml'
+```
+### Installing the Requirements
 After git cloning the repository, make sure to run the following script.
 ```
 pip install -r requirements.txt
-```
-### Installing Dependencies
-Our model also depends on pretrained VQGAN models from [Laion](https://github.com/huggingface/open-muse), so clone their repository to get all the dependencies required.
-```
-git clone https://github.com/huggingface/open-muse
-cd open-muse
-pip install -e ".[extra]"
-mv open-muse open_muse
 ```
 ### Configuring Compute Resources
 For the purpose of our project, we used Google Cloud's Virtual Machine services and use the following specifications for our compute resource.

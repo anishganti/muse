@@ -31,7 +31,14 @@ class TokenProcessor:
         config_path: str,
         ckpt_path: str, 
         device='cpu'
-    ):
+    ) -> None:
+        """
+        encoder_size: The size of the text encoder (e.g. 'base', 'large', 'small', etc)
+        img_size: The size of the square image (base resolution is 256, but super resolution is 512)
+        config_path: The path to the VQ Tokenizer
+        ckpt_path: The checkpoint weights of the VQ tokenizer
+        device: The device used do all the data work (default cpu)
+        """
 
         # cache image size
         self.img_size = img_size
@@ -76,7 +83,7 @@ class TokenProcessor:
         x = 2.*x - 1.
         return x
     
-    def preprocess(self, img, target_image_size=256,):
+    def preprocess(self, img, target_image_size=256):
         s = min(img.size)
         
         if s < target_image_size:
@@ -138,6 +145,13 @@ def prepare_dataloader(
     return dataloader
 
 def CosineAnneallingWarmupLR(iter:int, warmup_iters: int, decay_iters:int, max_lr: float, min_lr: float) -> float:
+    """
+    iter: Index argument for the learning rate scheduler
+    warmup_iters: Number of warmup iterations
+    decay_iters: Number of decay iterations
+    max_lr: Maximum learning rate at peaks
+    min_lr: Minimum leanring rate at troughs
+    """
 
     # 1) linear warmup for warmup_iters steps
     if iter < warmup_iters:
@@ -153,32 +167,38 @@ def CosineAnneallingWarmupLR(iter:int, warmup_iters: int, decay_iters:int, max_l
     coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio)) # coeff ranges 0..1
     return min_lr + coeff * (max_lr - min_lr)
 
-def mask_tokens(tokens, token_idx: int=16384):
-    # create the masking rate
-    p = 1
-
+def mask_tokens(tokens, mask_idx: int=16384):
+    """
+    tokens: Input tokens
+    token_idx: Index of the mask token
+    """
+    p = 0
+    # consistently sample the distribution until a probability that makes sense
     while p >= 1:
         r = random.random()
         p = 2/math.pi * (1 - r**2) ** (-1/2)
 
     # randomly mask the tokens based on the percentage
     mask = torch.randn(tokens.size()) < p
-    tokens[mask] = token_idx
+    tokens[mask] = mask_idx
     return tokens
 
 
 def get_lr_scheduler(optimizer, warmup_iters, decay_iters, min_lr, max_lr):
+    """
+    optimizer: Optimizer of the model
+    warmup_iters: Warmup iterations
+    decay_iters: Decay iterations
+    min_lr: Minimum learning rate at troughs
+    max_lr: Maximum learning rate at peaks
+    """
     # create the linear warmup and cosine decay
     lr_lambda = lambda iter: CosineAnneallingWarmupLR(iter, warmup_iters, decay_iters, max_lr, min_lr)
     scheduler = LambdaLR(optimizer, lr_lambda=lr_lambda)
     return scheduler
-
-# setup the logging directories
-def setup_logging(run_name):
-    os.makedirs("models", exist_ok=True)
-    os.makedirs(os.path.join("models", run_name), exist_ok=True)
     
 if __name__ == "__main__":
+    # test the functionality of the module
     path2data = "/Users/radiakbar/Projects/muse/coco_dataset/val2017"
     path2ann = "/Users/radiakbar/Projects/muse/coco_dataset/annotations/captions_val2017.json"
 

@@ -1,4 +1,5 @@
 transformers
 datasets
 tensorboard
-einops 
+einops
+taming-transformers 

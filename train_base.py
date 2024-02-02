@@ -24,7 +24,6 @@ class Trainer():
         # cache some information
         self.local_rank = args.local_rank
         self.img_size = args.img_size
-        self.vq_size = args.vq_size
         self.grad_accumulation_steps = args.grad_accumulation_steps
         self.model_size = args.model_size
 
@@ -98,7 +97,7 @@ class Trainer():
             pbar = tqdm(dataloader)
             l = len(dataloader)
 
-            for batch_idx, sample in enumerate(dataloader):
+            for batch_idx, sample in enumerate(pbar):
                 p = random() # used to stochastically chose which images gets a text embedding
 
                 # transfer the sample tokens to GPU
@@ -172,12 +171,12 @@ if __name__ == "__main__":
     args.beta1 = 0.9
 
     # information on the vq tokenizer
-    args.config_path = "/Users/radiakbar/Projects/muse/configs/vqgan_imagenet_f16_16384/model.yaml"
-    args.ckpt_path = "/Users/radiakbar/Projects/muse/configs/vqgan_imagenet_f16_16384/last.ckpt"
+    args.config_path = "configs/vqgan_imagenet_f16_16384/model.yaml"
+    args.ckpt_path = "configs/vqgan_imagenet_f16_16384/last.ckpt"
 
     # path of the coco dataset
-    args.path2ann = "/Users/radiakbar/Projects/muse/coco_dataset/annotations/captions_val2017.json"
-    args.path2img = "/Users/radiakbar/Projects/muse/coco_dataset/val2017"
+    args.path2ann = "coco_dataset/annotations/captions_val2017.json"
+    args.path2img = "coco_dataset/val2017"
 
     # training run configuration
     args.epochs = 2
